@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DropForge — CS2 Case Opening</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">DropForge</div>
+      <div class="actions">
+        <button class="ghost" data-topup="500">+500 ₽</button>
+        <button class="ghost" data-topup="2000">+2000 ₽</button>
+        <span class="balance">Баланс: <strong id="balance">0</strong> ₽</span>
+      </div>
+    </header>
+
+    <main class="container">
+      <section>
+        <h1>Кейсы</h1>
+        <div id="cases" class="grid"></div>
+      </section>
+
+      <section class="opening">
+        <h2>Открытие кейса</h2>
+        <p id="current-case">Выберите кейс слева</p>
+        <button id="open-btn" class="primary" disabled>Открыть кейс</button>
+        <div class="roulette"><div class="pin"></div><div id="roulette-track" class="track"></div></div>
+        <div id="result" class="result muted">Нет открытия</div>
+      </section>
+
+      <section>
+        <h2>Последние дропы</h2>
+        <div id="history" class="list empty">Пока нет дропов</div>
+      </section>
+
+      <section>
+        <h2>Инвентарь</h2>
+        <div id="inventory" class="list empty">Пока пусто</div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
