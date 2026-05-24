@@ -1,0 +1,2339 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import {
+  Search,
+  ShoppingBag,
+  Heart,
+  Dog,
+  Cat,
+  Sparkles,
+  X,
+  Star,
+  Plus,
+  Minus,
+  Trash2,
+  Check,
+  MapPin,
+  HelpCircle,
+  Gift,
+  PlusCircle,
+  Edit3,
+  Layers,
+  Tag,
+  ChevronDown,
+  Settings
+} from 'lucide-react';
+import { PRODUCTS, CATEGORIES, PRODUCT_TYPES, STORE_LOCATIONS, FAQS, REVIEWS, Product, Review, StoreLocation } from './mockData';
+
+// Helper to scale prices realistically based on weight/volume selection
+const getPriceForWeight = (basePrice: number, selectedWeight: string | undefined): { price: number, oldPrice?: number } => {
+  if (!selectedWeight) return { price: basePrice };
+  
+  if (selectedWeight.includes('10кг') || selectedWeight.includes('11.4кг')) {
+    return { 
+      price: Math.round(basePrice * 4.5),
+      oldPrice: Math.round(basePrice * 5.4)
+    };
+  }
+  if (selectedWeight.includes('6кг')) {
+    return { 
+      price: Math.round(basePrice * 3.0),
+      oldPrice: Math.round(basePrice * 3.6)
+    };
+  }
+  if (selectedWeight.includes('2кг')) {
+    return { 
+      price: Math.round(basePrice * 1.8),
+      oldPrice: Math.round(basePrice * 2.2)
+    };
+  }
+  if (selectedWeight.includes('12 шт')) {
+    return { 
+      price: Math.round(basePrice * 10.5),
+      oldPrice: Math.round(basePrice * 12.5)
+    };
+  }
+  if (selectedWeight.includes('500мл') || selectedWeight.includes('1кг')) {
+    return { 
+      price: Math.round(basePrice * 1.6),
+      oldPrice: Math.round(basePrice * 1.9)
+    };
+  }
+  if (selectedWeight.includes('250мл') || selectedWeight.includes('1л')) {
+    if (selectedWeight.includes('1л')) {
+      return { price: Math.round(basePrice * 2.5), oldPrice: Math.round(basePrice * 3.0) };
+    }
+    return { price: Math.round(basePrice * 1.3) };
+  }
+  return { price: basePrice };
+};
+
+// Interactive Order interface
+interface Order {
+  id: string;
+  date: string;
+  customerName: string;
+  phone: string;
+  city: string;
+  address: string;
+  deliveryType: 'delivery' | 'pickup';
+  paymentMethod: string;
+  pickupStoreAddress?: string;
+  totalAmount: number;
+  status: 'Новый' | 'Собирается' | 'В пути' | 'Доставлен' | 'Отменен';
+  items: Array<{
+    productName: string;
+    brand: string;
+    weight: string;
+    quantity: number;
+    price: number;
+  }>;
+}
+
+interface PromoCode {
+  code: string;
+  discount: number; 
+  description: string;
+}
+
+export default function App() {
+  // Main Client View Tab Selection
+  const [activeTab, setActiveTab] = useState<'shop' | 'stores' | 'faq' | 'loyalty'>('shop');
+  
+  // Admin View State
+  const [showAdminMode, setShowAdminMode] = useState<boolean>(false);
+  const [adminSubTab, setAdminSubTab] = useState<'products' | 'stores' | 'faqs' | 'promos' | 'orders'>('products');
+
+  // Secure Login Modal states
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+  const [loginInput, setLoginInput] = useState<string>('');
+  const [passwordInput, setPasswordInput] = useState<string>('');
+  const [loginError, setLoginError] = useState<boolean>(false);
+
+  const handleAdminSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loginInput.trim() === 'dudududu' && passwordInput.trim() === 'duduhastmish') {
+      setShowAdminMode(true);
+      setShowLoginModal(false);
+      setLoginInput('');
+      setPasswordInput('');
+      setLoginError(false);
+      triggerNotification('🔓 Успешный вход в Панель Управления!');
+    } else {
+      setLoginError(true);
+    }
+  };
+
+  // -----------------------------------------------------------------
+  // DATA ENTITY STATES (System database initialized from localStorage)
+  // -----------------------------------------------------------------
+  const [products, setProducts] = useState<Product[]>(() => {
+    const saved = localStorage.getItem('lh_products');
+    return saved ? JSON.parse(saved) : PRODUCTS;
+  });
+
+  const [storeLocations, setStoreLocations] = useState<StoreLocation[]>(() => {
+    const saved = localStorage.getItem('lh_store_locations');
+    return saved ? JSON.parse(saved) : STORE_LOCATIONS;
+  });
+
+  const [faqs, setFaqs] = useState<Array<{ question: string; answer: string }>>(() => {
+    const saved = localStorage.getItem('lh_faqs');
+    return saved ? JSON.parse(saved) : FAQS;
+  });
+
+  const [reviewsList, setReviewsList] = useState<Review[]>(() => {
+    const saved = localStorage.getItem('lh_reviews');
+    return saved ? JSON.parse(saved) : REVIEWS;
+  });
+  
+  const [promoCodes, setPromoCodes] = useState<PromoCode[]>(() => {
+    const saved = localStorage.getItem('lh_promo_codes');
+    return saved ? JSON.parse(saved) : [
+      { code: 'WELCOME10', discount: 10, description: 'Скидка 10% на первую покупку' },
+      { code: 'SUPERDOG', discount: 15, description: 'Скидка 15% на премиальные корма для собак' },
+      { code: 'HAPPYPET', discount: 20, description: 'Специальный купон 20% на все товары' }
+    ];
+  });
+
+  const [orders, setOrders] = useState<Order[]>(() => {
+    const saved = localStorage.getItem('lh_orders');
+    return saved ? JSON.parse(saved) : [
+      {
+        id: 'LH-748293',
+        date: '26.02.2026',
+        customerName: 'Алексей Воронов',
+        phone: '+7 (916) 234-56-78',
+        city: 'Москва',
+        address: 'Ленинский проспект, д. 42, кв. 12',
+        deliveryType: 'delivery',
+        paymentMethod: 'card',
+        totalAmount: 4890,
+        status: 'В пути',
+        items: [
+          { productName: 'Сухой беззерновой корм Grasslands с ягненком и укой', brand: 'Acana', weight: '2кг', quantity: 1, price: 4890 }
+        ]
+      },
+      {
+        id: 'LH-392012',
+        date: '25.02.2026',
+        customerName: 'Мария Федорова',
+        phone: '+7 (925) 555-90-12',
+        city: 'Санкт-Петербург',
+        address: 'Невский проспект, д. 120',
+        deliveryType: 'pickup',
+        paymentMethod: 'sbp',
+        pickupStoreAddress: 'Невский проспект, д. 120',
+        totalAmount: 1380,
+        status: 'Доставлен',
+        items: [
+          { productName: 'Сверхпрочная резиновая игрушка-неваляшка для лакомств', brand: 'Kong', weight: 'Размер M', quantity: 1, price: 1380 }
+        ]
+      }
+    ];
+  });
+
+  // -----------------------------------------------------------------
+  // FILTER & SEARCH STATES (CLIENT & CATALOG)
+  // -----------------------------------------------------------------
+  const [activeCategory, setActiveCategory] = useState<string>('all');
+  const [activeType, setActiveType] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedBrand, setSelectedBrand] = useState<string>('all');
+  const [maxPrice, setMaxPrice] = useState<number>(12000);
+  const [sortBy, setSortBy] = useState<string>('popular');
+  const [onlyInStock, setOnlyInStock] = useState<boolean>(false);
+  
+  // Favorites state (persisted)
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    const saved = localStorage.getItem('lh_favorites');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState<boolean>(false);
+
+  // Pet Profiles State (persisted)
+  const [petProfiles, setPetProfiles] = useState<Array<{
+    id: string;
+    name: string;
+    type: 'dogs' | 'cats' | 'rodents' | 'fish' | 'birds';
+    breed: string;
+    age: string;
+    weight: string;
+  }>>(() => {
+    const saved = localStorage.getItem('lh_pet_profiles');
+    return saved ? JSON.parse(saved) : [
+      { id: '1', name: 'Барсик', type: 'cats', breed: 'Британец', age: '3 года', weight: '4.5 кг' }
+    ];
+  });
+  
+  const [newPet, setNewPet] = useState({ name: '', type: 'dogs' as 'dogs' | 'cats' | 'rodents' | 'fish' | 'birds', breed: '', age: '', weight: '' });
+  const [showPetWizard, setShowPetWizard] = useState(false);
+  const [tailoredFilter, setTailoredFilter] = useState(false);
+  const [activePetProfileId, setActivePetProfileId] = useState<string>('1');
+
+  // Product weight choices
+  const [selectedWeights, setSelectedWeights] = useState<Record<string, string>>({});
+
+  // Cart state (persisted)
+  const [cart, setCart] = useState<Array<{
+    product: Product;
+    quantity: number;
+    selectedWeight: string;
+    price: number;
+  }>>(() => {
+    const saved = localStorage.getItem('lh_cart');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // -----------------------------------------------------------------
+  // EFFECTS TO PERSIST ALL STATE CHANGES TO LOCALSTORAGE
+  // -----------------------------------------------------------------
+  useEffect(() => {
+    localStorage.setItem('lh_products', JSON.stringify(products));
+  }, [products]);
+
+  useEffect(() => {
+    localStorage.setItem('lh_store_locations', JSON.stringify(storeLocations));
+  }, [storeLocations]);
+
+  useEffect(() => {
+    localStorage.setItem('lh_faqs', JSON.stringify(faqs));
+  }, [faqs]);
+
+  useEffect(() => {
+    localStorage.setItem('lh_reviews', JSON.stringify(reviewsList));
+  }, [reviewsList]);
+
+  useEffect(() => {
+    localStorage.setItem('lh_promo_codes', JSON.stringify(promoCodes));
+  }, [promoCodes]);
+
+  useEffect(() => {
+    localStorage.setItem('lh_orders', JSON.stringify(orders));
+  }, [orders]);
+
+  useEffect(() => {
+    localStorage.setItem('lh_favorites', JSON.stringify(favorites));
+  }, [favorites]);
+
+  useEffect(() => {
+    localStorage.setItem('lh_pet_profiles', JSON.stringify(petProfiles));
+  }, [petProfiles]);
+
+  useEffect(() => {
+    localStorage.setItem('lh_cart', JSON.stringify(cart));
+  }, [cart]);
+  const [cartOpen, setCartOpen] = useState(false);
+  
+  // Promo State in Cart
+  const [promoInput, setPromoInput] = useState('');
+  const [appliedPromo, setAppliedPromo] = useState<string | null>(null);
+  const [promoDiscountPercent, setPromoDiscountPercent] = useState(0);
+  const [promoFeedback, setPromoFeedback] = useState<{ text: string; isError: boolean } | null>(null);
+
+  // Checkout Form
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutForm, setCheckoutForm] = useState({
+    name: '',
+    phone: '',
+    city: 'Москва',
+    address: '',
+    deliveryType: 'delivery' as 'delivery' | 'pickup',
+    paymentMethod: 'card',
+    cardNumber: '',
+    cardExpiry: '',
+    cardCvv: '',
+    pickupStoreId: 's1'
+  });
+  const [orderSuccess, setOrderSuccess] = useState(false);
+  const [orderNumber, setOrderNumber] = useState('');
+
+  // Detailed Product Modal
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [newReview, setNewReview] = useState({
+    author: '',
+    rating: 5,
+    text: '',
+    petName: ''
+  });
+  const [reviewFeedback, setReviewFeedback] = useState<string | null>(null);
+
+  // Store Locator Filters
+  const [storeClinicFilter, setStoreClinicFilter] = useState(false);
+  const [storeGroomingFilter, setStoreGroomingFilter] = useState(false);
+  const [selectedStore, setSelectedStore] = useState<StoreLocation | null>(STORE_LOCATIONS[0]);
+  const [storeCityFilter, setStoreCityFilter] = useState<string>('Все');
+
+  // FAQ Search / Collapsible state
+  const [faqSearch, setFaqSearch] = useState('');
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+
+  // Silence TS unused warnings
+  if (false) {
+    setSelectedBrand(selectedBrand);
+    console.log(appliedPromo);
+    setStoreGroomingFilter(storeGroomingFilter);
+  }
+
+  // Newsletter & Promo popup banners
+  const [newsEmail, setNewsEmail] = useState('');
+  const [newsSubscribed, setNewsSubscribed] = useState(false);
+  const [showTopPromo, setShowTopPromo] = useState(true);
+
+  // -----------------------------------------------------------------
+  // ADMIN CRUD BINDINGS
+  // -----------------------------------------------------------------
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [showAddProductForm, setShowAddProductForm] = useState(false);
+  const [productFormState, setProductFormState] = useState<Partial<Product>>({
+    id: '',
+    name: '',
+    brand: 'Grandorf',
+    category: 'dogs',
+    type: 'food',
+    price: 500,
+    oldPrice: undefined,
+    rating: 5.0,
+    reviewsCount: 0,
+    image: 'https://images.unsplash.com/photo-1589723900909-5e73d115dbb3?auto=format&fit=crop&q=80&w=600',
+    weightOptions: ['1кг', '3кг'],
+    description: '',
+    inStock: true,
+    isBestSeller: false,
+    isNew: false,
+    isPromo: false,
+    specifications: {
+      'Класс корма': 'Супер-премиум',
+      'Страна производства': 'Россия'
+    }
+  });
+
+  const [editingStore, setEditingStore] = useState<StoreLocation | null>(null);
+  const [showAddStoreForm, setShowAddStoreForm] = useState(false);
+  const [storeFormState, setStoreFormState] = useState<Partial<StoreLocation>>({
+    id: '',
+    city: 'Москва',
+    address: '',
+    hours: '09:00 - 21:00',
+    phone: '+7 (495) 123-45-00',
+    hasVetClinic: false,
+    hasGrooming: false
+  });
+
+  const [editingFaq, setEditingFaq] = useState<{ index: number; question: string; answer: string } | null>(null);
+  const [showAddFaqForm, setShowAddFaqForm] = useState(false);
+  const [faqFormState, setFaqFormState] = useState({ question: '', answer: '' });
+
+  const [showAddPromoForm, setShowAddPromoForm] = useState(false);
+  const [promoFormState, setPromoFormState] = useState({ code: '', discount: 10, description: '' });
+
+  // -----------------------------------------------------------------
+  // TOAST & BOOTSTRAP WEIGHTS
+  // -----------------------------------------------------------------
+  useEffect(() => {
+    const initialWeights: Record<string, string> = {};
+    products.forEach(p => {
+      if (p.weightOptions && p.weightOptions.length > 0) {
+        initialWeights[p.id] = p.weightOptions[0];
+      }
+    });
+    setSelectedWeights(prev => ({ ...initialWeights, ...prev }));
+  }, [products]);
+
+  const [notifications, setNotifications] = useState<string[]>([]);
+
+  const triggerNotification = (message: string) => {
+    setNotifications(prev => [...prev, message]);
+    setTimeout(() => {
+      setNotifications(prev => prev.slice(1));
+    }, 4000);
+  };
+
+  // Apply Promo code validation
+  const handleApplyPromo = (e: React.FormEvent) => {
+    e.preventDefault();
+    const promo = promoInput.trim().toUpperCase();
+    
+    const foundPromo = promoCodes.find(pc => pc.code === promo);
+    
+    if (foundPromo) {
+      setPromoDiscountPercent(foundPromo.discount);
+      setAppliedPromo(foundPromo.code);
+      setPromoFeedback({ 
+        text: `Промокод ${foundPromo.code} применен: скидка ${foundPromo.discount}%! (${foundPromo.description})`, 
+        isError: false 
+      });
+      triggerNotification(`🎟️ Промокод ${foundPromo.code} успешно применен!`);
+    } else if (promo) {
+      setPromoFeedback({ text: 'Неверный промокод или срок его действия истек', isError: true });
+    }
+  };
+
+  // Toggle Favorites
+  const toggleFavorite = (id: string, event?: React.MouseEvent) => {
+    if (event) event.stopPropagation();
+    setFavorites(prev => {
+      const isFav = prev.includes(id);
+      const prodName = products.find(p => p.id === id)?.name || '';
+      if (isFav) {
+        triggerNotification(`💔 Удалено из избранного: ${prodName.slice(0, 25)}...`);
+        return prev.filter(item => item !== id);
+      } else {
+        triggerNotification(`❤️ Добавлено в избранное: ${prodName.slice(0, 25)}...`);
+        return [...prev, id];
+      }
+    });
+  };
+
+  // Add to Cart
+  const addToCart = (product: Product, weightOverride?: string, event?: React.MouseEvent) => {
+    if (event) event.stopPropagation();
+    
+    const weight = weightOverride || selectedWeights[product.id] || (product.weightOptions ? product.weightOptions[0] : 'стандарт');
+    const { price } = getPriceForWeight(product.price, weight);
+    
+    setCart(prev => {
+      const existingIndex = prev.findIndex(item => item.product.id === product.id && item.selectedWeight === weight);
+      if (existingIndex > -1) {
+        const updated = [...prev];
+        updated[existingIndex].quantity += 1;
+        triggerNotification(`🛒 Увеличено количество в корзине: ${product.brand} (${weight})`);
+        return updated;
+      } else {
+        triggerNotification(`🛒 Добавлено в корзину: ${product.brand} — ${product.name.slice(0, 25)}... (${weight})`);
+        return [...prev, { product, quantity: 1, selectedWeight: weight, price }];
+      }
+    });
+  };
+
+  const updateCartQty = (productId: string, weight: string, delta: number) => {
+    setCart(prev => {
+      return prev.map(item => {
+        if (item.product.id === productId && item.selectedWeight === weight) {
+          const newQty = item.quantity + delta;
+          return newQty > 0 ? { ...item, quantity: newQty } : null;
+        }
+        return item;
+      }).filter(Boolean) as typeof cart;
+    });
+  };
+
+  const removeFromCart = (productId: string, weight: string) => {
+    setCart(prev => prev.filter(item => !(item.product.id === productId && item.selectedWeight === weight)));
+    triggerNotification('🗑️ Товар удален из корзины');
+  };
+
+  // Total and subtotal selectors
+  const cartSubtotal = useMemo(() => {
+    return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  }, [cart]);
+
+  const cartDiscount = useMemo(() => {
+    return Math.round((cartSubtotal * promoDiscountPercent) / 100);
+  }, [cartSubtotal, promoDiscountPercent]);
+
+  const deliveryCost = useMemo(() => {
+    if (cartSubtotal === 0) return 0;
+    if (checkoutForm.deliveryType === 'pickup') return 0;
+    return cartSubtotal >= 2000 ? 0 : 290;
+  }, [cartSubtotal, checkoutForm.deliveryType]);
+
+  const cartTotal = useMemo(() => {
+    return Math.max(0, cartSubtotal - cartDiscount + deliveryCost);
+  }, [cartSubtotal, cartDiscount, deliveryCost]);
+
+  const progressToFreeDelivery = useMemo(() => {
+    const target = 2000;
+    if (cartSubtotal >= target) return 100;
+    return Math.min(100, Math.round((cartSubtotal / target) * 100));
+  }, [cartSubtotal]);
+
+  // Filters and search logic
+  const filteredProducts = useMemo(() => {
+    return products.filter(prod => {
+      if (activeCategory !== 'all' && prod.category !== activeCategory) {
+        return false;
+      }
+      if (activeType !== 'all' && prod.type !== activeType) {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const matchName = prod.name.toLowerCase().includes(query);
+        const matchBrand = prod.brand.toLowerCase().includes(query);
+        const matchDesc = prod.description.toLowerCase().includes(query);
+        const matchSpec = Object.values(prod.specifications).some(val => val.toLowerCase().includes(query));
+        if (!matchName && !matchBrand && !matchDesc && !matchSpec) {
+          return false;
+        }
+      }
+      if (selectedBrand !== 'all' && prod.brand !== selectedBrand) {
+        return false;
+      }
+      const currentWeight = selectedWeights[prod.id] || (prod.weightOptions ? prod.weightOptions[0] : undefined);
+      const currentPriceInfo = getPriceForWeight(prod.price, currentWeight);
+      if (currentPriceInfo.price > maxPrice) {
+        return false;
+      }
+      if (showFavoritesOnly && !favorites.includes(prod.id)) {
+        return false;
+      }
+      if (onlyInStock && !prod.inStock) {
+        return false;
+      }
+      if (tailoredFilter && petProfiles.length > 0) {
+        const activePet = petProfiles.find(p => p.id === activePetProfileId);
+        if (activePet && prod.category !== activePet.type) {
+          return false;
+        }
+      }
+      return true;
+    }).sort((a, b) => {
+      const weightA = selectedWeights[a.id] || (a.weightOptions ? a.weightOptions[0] : undefined);
+      const priceA = getPriceForWeight(a.price, weightA).price;
+
+      const weightB = selectedWeights[b.id] || (b.weightOptions ? b.weightOptions[0] : undefined);
+      const priceB = getPriceForWeight(b.price, weightB).price;
+
+      if (sortBy === 'price-asc') {
+        return priceA - priceB;
+      }
+      if (sortBy === 'price-desc') {
+        return priceB - priceA;
+      }
+      if (sortBy === 'rating') {
+        return b.rating - a.rating;
+      }
+      return (b.reviewsCount * b.rating) - (a.reviewsCount * a.rating);
+    });
+  }, [products, activeCategory, activeType, searchQuery, selectedBrand, selectedWeights, maxPrice, showFavoritesOnly, favorites, onlyInStock, tailoredFilter, petProfiles, activePetProfileId, sortBy]);
+
+  // Add Pet
+  const handleAddPet = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPet.name.trim()) return;
+
+    const newProfile = {
+      id: Date.now().toString(),
+      ...newPet
+    };
+
+    setPetProfiles(prev => [...prev, newProfile]);
+    setActivePetProfileId(newProfile.id);
+    setNewPet({ name: '', type: 'dogs', breed: '', age: '', weight: '' });
+    setShowPetWizard(false);
+    setTailoredFilter(true);
+    triggerNotification(`🐱 Добавлен профиль любимца: ${newProfile.name}!`);
+  };
+
+  // Review handler
+  const handleAddReview = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newReview.author.trim() || !newReview.text.trim() || !selectedProduct) {
+      setReviewFeedback('Пожалуйста, заполните все обязательные поля.');
+      return;
+    }
+
+    const reviewObj: Review = {
+      id: `new-r-${Date.now()}`,
+      productId: selectedProduct.id,
+      author: newReview.author,
+      rating: newReview.rating,
+      date: 'Сегодня',
+      text: newReview.text,
+      petName: newReview.petName ? `${newReview.petName}` : undefined,
+      likes: 0
+    };
+
+    setReviewsList(prev => [reviewObj, ...prev]);
+    setNewReview({ author: '', rating: 5, text: '', petName: '' });
+    setReviewFeedback('Спасибо! Ваш отзыв успешно опубликован.');
+    triggerNotification('⭐ Отзыв успешно добавлен!');
+    setTimeout(() => setReviewFeedback(null), 4000);
+  };
+
+  // Checkout
+  const handlePlaceOrder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!checkoutForm.name || !checkoutForm.phone || (checkoutForm.deliveryType === 'delivery' && !checkoutForm.address)) {
+      triggerNotification('⚠️ Заполните обязательные поля!');
+      return;
+    }
+
+    const generatedNum = `LH-${Math.floor(100000 + Math.random() * 900000)}`;
+    setOrderNumber(generatedNum);
+
+    const freshOrder: Order = {
+      id: generatedNum,
+      date: new Date().toLocaleDateString('ru-RU'),
+      customerName: checkoutForm.name,
+      phone: checkoutForm.phone,
+      city: checkoutForm.city,
+      address: checkoutForm.address || 'Самовывоз',
+      deliveryType: checkoutForm.deliveryType,
+      paymentMethod: checkoutForm.paymentMethod,
+      pickupStoreAddress: checkoutForm.deliveryType === 'pickup' 
+        ? storeLocations.find(s => s.id === checkoutForm.pickupStoreId)?.address 
+        : undefined,
+      totalAmount: cartTotal,
+      status: 'Новый',
+      items: cart.map(item => ({
+        productName: item.product.name,
+        brand: item.product.brand,
+        weight: item.selectedWeight,
+        quantity: item.quantity,
+        price: item.price
+      }))
+    };
+
+    setOrders(prev => [freshOrder, ...prev]);
+    setOrderSuccess(true);
+    setCart([]);
+    triggerNotification('🎉 Заказ оформлен! Начинаем готовить к отправке.');
+  };
+
+  const filteredStores = useMemo(() => {
+    return storeLocations.filter(store => {
+      if (storeCityFilter !== 'Все' && store.city !== storeCityFilter) return false;
+      if (storeClinicFilter && !store.hasVetClinic) return false;
+      if (storeGroomingFilter && !store.hasGrooming) return false;
+      return true;
+    });
+  }, [storeLocations, storeCityFilter, storeClinicFilter, storeGroomingFilter]);
+
+  // -----------------------------------------------------------------
+  // ADMIN CRUD HANDLERS
+  // -----------------------------------------------------------------
+  const handleSaveProduct = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!productFormState.name || !productFormState.brand) {
+      triggerNotification('⚠️ Заполните обязательные поля');
+      return;
+    }
+
+    if (editingProduct) {
+      setProducts(prev => prev.map(p => p.id === editingProduct.id ? { ...p, ...productFormState } as Product : p));
+      triggerNotification(`✏️ Товар "${productFormState.name.slice(0, 20)}..." изменен!`);
+      setEditingProduct(null);
+    } else {
+      const freshProd: Product = {
+        ...productFormState,
+        id: `p-${Date.now()}`,
+        rating: 5.0,
+        reviewsCount: 0,
+        inStock: productFormState.inStock ?? true,
+        specifications: productFormState.specifications || { 'Страна производства': 'Россия' }
+      } as Product;
+
+      setProducts(prev => [freshProd, ...prev]);
+      triggerNotification(`✨ Товар "${freshProd.name.slice(0, 20)}..." добавлен!`);
+      setShowAddProductForm(false);
+    }
+
+    // Reset Product Form State
+    setProductFormState({
+      id: '',
+      name: '',
+      brand: 'Grandorf',
+      category: 'dogs',
+      type: 'food',
+      price: 500,
+      rating: 5.0,
+      reviewsCount: 0,
+      image: 'https://images.unsplash.com/photo-1589723900909-5e73d115dbb3?auto=format&fit=crop&q=80&w=600',
+      weightOptions: ['1кг', '3кг'],
+      description: '',
+      inStock: true,
+      isBestSeller: false,
+      isNew: false,
+      isPromo: false,
+      specifications: {
+        'Класс корма': 'Супер-премиум',
+        'Страна производства': 'Россия'
+      }
+    });
+  };
+
+  const deleteProduct = (id: string) => {
+    if (window.confirm('Вы уверены, что хотите удалить этот товар?')) {
+      setProducts(prev => prev.filter(p => p.id !== id));
+      triggerNotification('🗑️ Товар удален из базы');
+    }
+  };
+
+  const handleSaveStore = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!storeFormState.address) return;
+
+    if (editingStore) {
+      setStoreLocations(prev => prev.map(s => s.id === editingStore.id ? { ...s, ...storeFormState } as StoreLocation : s));
+      triggerNotification('✏️ Магазин изменен!');
+      setEditingStore(null);
+    } else {
+      const freshStore: StoreLocation = {
+        ...storeFormState,
+        id: `s-${Date.now()}`,
+        coordinates: { lat: 55.758 + Math.random() * 0.1, lng: 37.61 + Math.random() * 0.1 }
+      } as StoreLocation;
+
+      setStoreLocations(prev => [...prev, freshStore]);
+      triggerNotification('✨ Магазин добавлен!');
+      setShowAddStoreForm(false);
+    }
+
+    setStoreFormState({
+      id: '',
+      city: 'Москва',
+      address: '',
+      hours: '09:00 - 21:00',
+      phone: '+7 (495) 123-45-00',
+      hasVetClinic: false,
+      hasGrooming: false
+    });
+  };
+
+  const deleteStore = (id: string) => {
+    if (window.confirm('Удалить адрес магазина?')) {
+      setStoreLocations(prev => prev.filter(s => s.id !== id));
+      triggerNotification('🗑️ Магазин удален');
+    }
+  };
+
+   const handleSaveFaq = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!faqFormState.question || !faqFormState.answer) return;
+
+    if (editingFaq) {
+      setFaqs(prev => prev.map((f: { question: string; answer: string }, index: number) => index === editingFaq.index ? { question: faqFormState.question, answer: faqFormState.answer } : f));
+      triggerNotification('✏️ Вопрос FAQ изменен!');
+      setEditingFaq(null);
+    } else {
+      setFaqs(prev => [...prev, { question: faqFormState.question, answer: faqFormState.answer }]);
+      triggerNotification('✨ Вопрос FAQ добавлен!');
+      setShowAddFaqForm(false);
+    }
+    setFaqFormState({ question: '', answer: '' });
+  };
+
+  const deleteFaq = (index: number) => {
+    if (window.confirm('Удалить этот вопрос?')) {
+      setFaqs(prev => prev.filter((_: { question: string; answer: string }, idx: number) => idx !== index));
+      triggerNotification('🗑️ Вопрос удален');
+    }
+  };
+
+  const handleSavePromo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!promoFormState.code) return;
+
+    const newPromo: PromoCode = {
+      code: promoFormState.code.toUpperCase(),
+      discount: Number(promoFormState.discount),
+      description: promoFormState.description || 'Скидка на заказ'
+    };
+
+    setPromoCodes(prev => [newPromo, ...prev]);
+    triggerNotification(`✨ Промокод ${newPromo.code} добавлен!`);
+    setShowAddPromoForm(false);
+    setPromoFormState({ code: '', discount: 10, description: '' });
+  };
+
+  const deletePromo = (code: string) => {
+    if (window.confirm(`Удалить промокод ${code}?`)) {
+      setPromoCodes(prev => prev.filter(pc => pc.code !== code));
+      triggerNotification(`🗑️ Промокод ${code} удален`);
+    }
+  };
+
+  const handleUpdateOrderStatus = (orderId: string, status: Order['status']) => {
+    setOrders(prev => prev.map(ord => ord.id === orderId ? { ...ord, status } : ord));
+    triggerNotification(`📦 Статус заказа ${orderId} изменен на "${status}"`);
+  };
+
+  return (
+    <div className="min-h-screen bg-stone-50 text-zinc-850 flex flex-col relative antialiased font-sans">
+      
+      {/* Notifications Toast */}
+      <div className="fixed bottom-4 left-4 z-50 flex flex-col gap-2 pointer-events-none max-w-md">
+        {notifications.map((note, idx) => (
+          <div key={idx} className="bg-emerald-950 text-stone-50 px-4 py-3 rounded-xl shadow-2xl border border-emerald-700 text-sm font-medium flex items-center gap-2 animate-bounce pointer-events-auto">
+            <div className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></div>
+            <span>{note}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Top Banner */}
+      {showTopPromo && !showAdminMode && (
+        <div className="bg-emerald-950 text-emerald-100 text-xs sm:text-sm py-2 px-4 text-center relative font-medium border-b border-emerald-800">
+          <div className="max-w-7xl mx-auto flex items-center justify-center gap-2 flex-wrap">
+            <span className="bg-amber-400 text-emerald-950 text-[10px] uppercase font-extrabold px-2 py-0.5 rounded">Акция</span>
+            <span>Скидка <strong>10%</strong> по коду <strong className="text-amber-300 underline">WELCOME10</strong>!</span>
+            <span className="text-emerald-300">Бесплатная доставка от 2000 ₽!</span>
+          </div>
+          <button onClick={() => setShowTopPromo(false)} className="absolute right-2 top-1/2 -translate-y-1/2 text-emerald-450"><X className="w-4 h-4" /></button>
+        </div>
+      )}
+
+      {/* HEADER */}
+      <header className="bg-emerald-900 text-white sticky top-0 z-40 shadow-md">
+        
+        <div className="border-b border-emerald-800/50 text-xs text-emerald-100/80">
+          <div className="max-w-7xl mx-auto px-4 py-2 flex justify-between items-center">
+            <div className="flex items-center gap-4">
+              <span className="flex items-center gap-1 text-amber-300 font-semibold">
+                <MapPin className="w-3 h-3" />
+                <span>Ваш город: Москва</span>
+              </span>
+              <span className="hover:text-white cursor-pointer" onClick={() => { setActiveTab('stores'); setStoreCityFilter('Москва'); }}>Магазины: {storeLocations.length} адресов</span>
+              <span className="hover:text-white cursor-pointer hidden sm:inline" onClick={() => { setActiveTab('stores'); setStoreClinicFilter(true); }}>Ветеринария</span>
+            </div>
+
+             <div className="flex items-center gap-4">
+              {/* Toggle Admin Switch button in header */}
+              <button 
+                onClick={() => {
+                  if (showAdminMode) {
+                    setShowAdminMode(false);
+                    triggerNotification('🖥️ Переход в клиентский режим');
+                  } else {
+                    setShowLoginModal(true);
+                  }
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black uppercase transition-all ${showAdminMode ? 'bg-rose-600 text-white shadow-md' : 'bg-amber-400 text-emerald-950 hover:bg-amber-300'}`}
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>{showAdminMode ? 'Выйти из админки' : 'Админ-панель'}</span>
+              </button>
+
+              <div className="hidden md:flex items-center gap-5">
+                <button onClick={() => { setActiveTab('loyalty'); }} className="hover:text-white flex items-center gap-1">
+                  <Gift className="w-3 h-3 text-amber-400" />
+                  <span>Бонусная программа «Клуб Хвостиков»</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center justify-between w-full md:w-auto gap-4">
+            <div 
+              onClick={() => { setShowAdminMode(false); setActiveTab('shop'); setShowFavoritesOnly(false); setActiveCategory('all'); }} 
+              className="flex items-center gap-2 cursor-pointer group select-none"
+            >
+              <div className="bg-gradient-to-br from-emerald-400 to-emerald-600 p-2.5 rounded-2xl shadow-md transform group-hover:rotate-6 transition-all">
+                <Dog className="w-7 h-7 text-emerald-950" />
+              </div>
+              <div className="scale-[0.75] origin-left md:scale-100 transition-transform duration-200">
+                <div className="flex items-center gap-1">
+                  <span className="text-2xl font-black text-white">Лапки</span>
+                  <span className="text-amber-400 text-xl font-extrabold">&</span>
+                  <span className="text-2xl font-black text-amber-300">Хвостики</span>
+                </div>
+                <p className="text-[10px] text-emerald-200 tracking-wider uppercase font-bold -mt-1">Премиум зоомаркет</p>
+              </div>
+            </div>
+
+            {/* Mobile Cart Actions */}
+            <div className="flex items-center gap-2 md:hidden">
+              <button 
+                onClick={() => setCartOpen(true)} 
+                className="p-2.5 px-5 rounded-xl bg-amber-400 text-emerald-950 font-black flex items-center justify-center gap-2 whitespace-nowrap shadow-sm scale-[0.85] -translate-x-[27%]"
+              >
+                <ShoppingBag className="w-5 h-5 text-emerald-900 flex-shrink-0" />
+                <span>{cart.reduce((sum, i) => sum + i.quantity, 0)} шт.</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Search input */}
+          <div className="w-full md:max-w-xl relative">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Поиск корма, игрушек, витаминов и брендов..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  if (activeTab !== 'shop') setActiveTab('shop');
+                  if (showAdminMode) setShowAdminMode(false);
+                }}
+                className="w-full bg-emerald-955 text-white placeholder-emerald-300/70 border border-emerald-750 focus:border-amber-400 rounded-2xl py-3 pl-11 pr-10 text-sm focus:ring-2 focus:ring-amber-400/20 outline-none animate-none"
+              />
+              <Search className="w-5 h-5 text-emerald-300 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-300 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            
+            {searchQuery && filteredProducts.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-stone-200 text-zinc-800 text-xs z-50 max-h-64 overflow-y-auto">
+                <div className="p-2 bg-stone-100 text-stone-500 font-semibold font-mono">Найдено: {filteredProducts.length}</div>
+                {filteredProducts.slice(0, 5).map(p => (
+                  <div 
+                    key={p.id} 
+                    onClick={() => { setSelectedProduct(p); setSearchQuery(''); }}
+                    className="p-2.5 hover:bg-emerald-50 flex items-center gap-3 cursor-pointer border-b border-stone-100"
+                  >
+                    <img src={p.image} alt={p.name} className="w-9 h-9 object-cover rounded bg-stone-100" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-emerald-900 truncate">{p.brand}</p>
+                      <p className="text-stone-600 truncate">{p.name}</p>
+                    </div>
+                    <div className="text-right font-extrabold text-emerald-950 whitespace-nowrap">{p.price} ₽</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Actions toolbar */}
+          <div className="hidden md:flex items-center gap-3.5">
+            {petProfiles.length > 0 ? (
+              <div 
+                onClick={() => { setActiveTab('loyalty'); setShowAdminMode(false); }}
+                className="bg-emerald-850 border border-emerald-800 rounded-2xl px-3.5 py-1.5 flex items-center gap-2 cursor-pointer hover:bg-emerald-800 text-left"
+              >
+                <Cat className="w-4 h-4 text-amber-300" />
+                <div>
+                  <p className="text-[10px] text-emerald-300 font-semibold uppercase font-mono">Питомец</p>
+                  <p className="text-xs font-bold text-white truncate max-w-[80px]">
+                    {petProfiles.find(p => p.id === activePetProfileId)?.name || petProfiles[0].name}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <button 
+                onClick={() => { setActiveTab('loyalty'); setShowPetWizard(true); setShowAdminMode(false); }}
+                className="bg-emerald-850 border border-emerald-800 rounded-2xl px-3 py-1.5 text-xs hover:bg-emerald-800 flex items-center gap-1"
+              >
+                <PlusCircle className="w-4 h-4 text-amber-400" />
+                <span>Добавить питомца</span>
+              </button>
+            )}
+
+            <button 
+              onClick={() => { setShowFavoritesOnly(!showFavoritesOnly); setActiveTab('shop'); setShowAdminMode(false); }} 
+              className={`p-3 rounded-2xl border flex items-center gap-2 ${showFavoritesOnly ? 'bg-amber-400 border-amber-400 text-emerald-950 font-bold' : 'border-emerald-800 text-emerald-100 bg-emerald-850/50 hover:bg-emerald-800'}`}
+            >
+              <Heart className="w-5 h-5 fill-current" />
+              <span className="text-xs font-semibold">Избранное</span>
+            </button>
+
+             <button 
+              onClick={() => setCartOpen(true)} 
+              className="p-3 px-5 rounded-2xl bg-amber-400 hover:bg-amber-500 text-emerald-950 font-black flex items-center justify-center gap-2 shadow-md transition-all hover:scale-105"
+            >
+              <ShoppingBag className="w-5 h-5 text-emerald-900" />
+              <span className="text-xs font-black whitespace-nowrap">
+                {cart.reduce((sum, i) => sum + i.quantity, 0)} тов. / {cartTotal} ₽
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* Lower Navigation */}
+        <div className="bg-emerald-950 text-white px-4 py-2">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 overflow-x-auto">
+            <div className="flex items-center gap-3 py-1 min-w-max">
+              <button 
+                onClick={() => { setActiveTab('shop'); setShowFavoritesOnly(false); setShowAdminMode(false); }}
+                className={`px-5 py-1.5 rounded-lg text-xs sm:text-sm font-bold flex items-center justify-center gap-2 ${activeTab === 'shop' && !showAdminMode ? 'bg-emerald-800 text-amber-400' : 'text-emerald-100 hover:bg-emerald-900'}`}
+              >
+                <Sparkles className="w-4 h-4" />
+                Интернет-магазин
+              </button>
+              <button 
+                onClick={() => { setActiveTab('stores'); setShowAdminMode(false); }}
+                className={`px-5 py-1.5 rounded-lg text-xs sm:text-sm font-bold flex items-center justify-center gap-2 ${activeTab === 'stores' && !showAdminMode ? 'bg-emerald-800 text-amber-400' : 'text-emerald-100 hover:bg-emerald-900'}`}
+              >
+                <MapPin className="w-4 h-4" />
+                Адреса магазинов
+              </button>
+              <button 
+                onClick={() => { setActiveTab('loyalty'); setShowAdminMode(false); }}
+                className={`px-5 py-1.5 rounded-lg text-xs sm:text-sm font-bold flex items-center justify-center gap-2 ${activeTab === 'loyalty' && !showAdminMode ? 'bg-emerald-800 text-amber-400' : 'text-emerald-100 hover:bg-emerald-900'}`}
+              >
+                <Gift className="w-4 h-4" />
+                Клуб привилегий
+              </button>
+              <button 
+                onClick={() => { setActiveTab('faq'); setShowAdminMode(false); }}
+                className={`px-5 py-1.5 rounded-lg text-xs sm:text-sm font-bold flex items-center justify-center gap-2 ${activeTab === 'faq' && !showAdminMode ? 'bg-emerald-800 text-amber-400' : 'text-emerald-100 hover:bg-emerald-900'}`}
+              >
+                <HelpCircle className="w-4 h-4" />
+                База знаний (FAQ)
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 min-w-max pl-4">
+              <span className="text-xs font-bold text-emerald-300 font-mono">🔥 Скидки:</span>
+              <div className="flex gap-1.5 font-mono">
+                {promoCodes.slice(0, 2).map(pc => (
+                  <span 
+                    key={pc.code} 
+                    onClick={() => { setPromoInput(pc.code); triggerNotification(`Промокод ${pc.code} скопирован`); }}
+                    className="bg-emerald-900 hover:bg-emerald-850 text-white text-[10px] font-extrabold px-2 py-1 rounded cursor-pointer border border-emerald-700/80"
+                  >
+                    {pc.code} (-{pc.discount}%)
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* -----------------------------------------------------------------
+          ADMIN PANEL RENDER VIEW
+          ----------------------------------------------------------------- */}
+      {showAdminMode ? (
+        <div className="bg-stone-100 flex-1 py-8">
+          <div className="max-w-7xl mx-auto px-4 space-y-8">
+            
+            {/* Admin Header */}
+            <div className="bg-emerald-950 text-white rounded-3xl p-6 shadow-xl border border-emerald-850">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="bg-amber-400 text-emerald-950 text-[10px] font-black uppercase px-2.5 py-0.5 rounded font-mono">
+                      Режим Администрирования
+                    </span>
+                    <span className="text-xs text-emerald-300">Полный доступ к управлению структурой сайта и продажами</span>
+                  </div>
+                  <h2 className="text-2xl sm:text-3xl font-black mt-2">Панель управления «Лапки&Хвостики»</h2>
+                </div>
+
+                <div className="flex gap-2 bg-emerald-900/50 p-3 rounded-2xl border border-emerald-800/60 font-mono">
+                  <div className="text-center px-3 border-r border-emerald-800 last:border-none text-stone-300">
+                    <p className="text-[10px] text-emerald-300 uppercase font-bold">Товаров</p>
+                    <p className="text-lg font-bold text-amber-300">{products.length}</p>
+                  </div>
+                  <div className="text-center px-3 border-r border-emerald-800 last:border-none text-stone-300">
+                    <p className="text-[10px] text-emerald-300 uppercase font-bold">Магазинов</p>
+                    <p className="text-lg font-bold text-amber-300">{storeLocations.length}</p>
+                  </div>
+                  <div className="text-center px-3 border-r border-emerald-800 last:border-none text-stone-300">
+                    <p className="text-[10px] text-emerald-300 uppercase font-bold">Заказов</p>
+                    <p className="text-lg font-bold text-amber-300">{orders.length}</p>
+                  </div>
+                  <div className="text-center px-3 last:border-none text-stone-300">
+                    <p className="text-[10px] text-emerald-300 uppercase font-bold">Купонов</p>
+                    <p className="text-lg font-bold text-amber-300">{promoCodes.length}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Sub tabs */}
+            <div className="bg-white rounded-2xl border border-stone-200 p-2.5 flex flex-wrap gap-2 shadow-sm">
+              <button
+                onClick={() => setAdminSubTab('products')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${adminSubTab === 'products' ? 'bg-emerald-900 text-white font-black' : 'text-zinc-600 hover:bg-stone-50'}`}
+              >
+                <Layers className="w-4 h-4" />
+                <span>Каталог товаров ({products.length})</span>
+              </button>
+
+              <button
+                onClick={() => setAdminSubTab('stores')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${adminSubTab === 'stores' ? 'bg-emerald-900 text-white font-black' : 'text-zinc-600 hover:bg-stone-50'}`}
+              >
+                <MapPin className="w-4 h-4" />
+                <span>Магазины ({storeLocations.length})</span>
+              </button>
+
+              <button
+                onClick={() => setAdminSubTab('faqs')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${adminSubTab === 'faqs' ? 'bg-emerald-900 text-white font-black' : 'text-zinc-600 hover:bg-stone-50'}`}
+              >
+                <HelpCircle className="w-4 h-4" />
+                <span>База FAQ ({faqs.length})</span>
+              </button>
+
+              <button
+                onClick={() => setAdminSubTab('promos')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${adminSubTab === 'promos' ? 'bg-emerald-900 text-white font-black' : 'text-zinc-600 hover:bg-stone-50'}`}
+              >
+                <Tag className="w-4 h-4" />
+                <span>Промокоды ({promoCodes.length})</span>
+              </button>
+
+              <button
+                onClick={() => setAdminSubTab('orders')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${adminSubTab === 'orders' ? 'bg-emerald-900 text-white font-black' : 'text-zinc-600 hover:bg-stone-50'}`}
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span>Поступившие заказы ({orders.length})</span>
+              </button>
+            </div>
+
+            {/* PRODUCTS CRUD TAB */}
+            {adminSubTab === 'products' && (
+              <div className="space-y-6">
+                <div className="bg-white rounded-2xl border border-stone-200 p-5 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <h3 className="font-black text-emerald-950 text-lg">Управление ассортиментом</h3>
+                    <p className="text-xs text-stone-400">Редактируйте цены, бейджи, наличие на складе и фасовки товаров.</p>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setEditingProduct(null);
+                      setShowAddProductForm(!showAddProductForm);
+                      setProductFormState({
+                        name: '', brand: 'Grandorf', category: 'cats', type: 'food', price: 1200,
+                        image: 'https://images.unsplash.com/photo-1589723900909-5e73d115dbb3?auto=format&fit=crop&q=80&w=600',
+                        weightOptions: ['400г', '2кг'], description: 'Гипоаллергенный продукт холистик-класса.', inStock: true,
+                        specifications: { 'Класс корма': 'Холистик', 'Страна производства': 'Россия' }
+                      });
+                    }}
+                    className="bg-emerald-900 hover:bg-emerald-850 text-white text-xs font-black px-5 py-3 rounded-xl uppercase tracking-wider flex items-center gap-1.5"
+                  >
+                    <PlusCircle className="w-4.5 h-4.5" />
+                    <span>{showAddProductForm ? 'Скрыть форму' : 'Создать новый товар'}</span>
+                  </button>
+                </div>
+
+                {/* Product Editor/Create Form */}
+                {(showAddProductForm || editingProduct) && (
+                  <form onSubmit={handleSaveProduct} className="bg-white rounded-2xl border-2 border-emerald-900/20 p-6 shadow-xl space-y-6 animate-slideDown">
+                    <h4 className="font-black text-emerald-955 uppercase text-sm pb-2 border-b">
+                      {editingProduct ? 'Параметры существующего товара' : 'Регистрация нового товара'}
+                    </h4>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-bold text-zinc-750 mb-1">Наименование товара *</label>
+                        <input
+                          type="text"
+                          required
+                          value={productFormState.name || ''}
+                          onChange={(e) => setProductFormState({ ...productFormState, name: e.target.value })}
+                          className="w-full bg-stone-50 border rounded-xl px-3 py-2 text-xs font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-750 mb-1">Бренд производителя *</label>
+                        <input
+                          type="text"
+                          required
+                          value={productFormState.brand || ''}
+                          onChange={(e) => setProductFormState({ ...productFormState, brand: e.target.value })}
+                          className="w-full bg-stone-50 border rounded-xl px-3 py-2 text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-750 mb-1">Категория животного *</label>
+                        <select
+                          value={productFormState.category || 'dogs'}
+                          onChange={(e) => setProductFormState({ ...productFormState, category: e.target.value as any })}
+                          className="w-full bg-stone-50 border rounded-xl px-3 py-2 text-xs"
+                        >
+                          <option value="dogs">Собакам</option>
+                          <option value="cats">Кошкам</option>
+                          <option value="rodents">Грызунам</option>
+                          <option value="fish">Рыбкам</option>
+                          <option value="birds">Птицам</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-750 mb-1">Тип товара *</label>
+                        <select
+                          value={productFormState.type || 'food'}
+                          onChange={(e) => setProductFormState({ ...productFormState, type: e.target.value as any })}
+                          className="w-full bg-stone-50 border rounded-xl px-3 py-2 text-xs"
+                        >
+                          <option value="food">Корма и лакомства</option>
+                          <option value="toys">Игрушки</option>
+                          <option value="pharma">Ветаптека</option>
+                          <option value="accessories">Аксессуары</option>
+                          <option value="grooming">Уход</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-750 mb-1">Базовая цена *</label>
+                        <input
+                          type="number"
+                          required
+                          value={productFormState.price || ''}
+                          onChange={(e) => setProductFormState({ ...productFormState, price: Number(e.target.value) })}
+                          className="w-full bg-stone-50 border rounded-xl px-3 py-2 text-xs font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-750 mb-1">Ссылка на картинку URL</label>
+                        <input
+                          type="text"
+                          value={productFormState.image || ''}
+                          onChange={(e) => setProductFormState({ ...productFormState, image: e.target.value })}
+                          className="w-full bg-stone-50 border rounded-xl px-3 py-2 text-xs font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-750 mb-1">Варианты фасовки (через запятую)</label>
+                        <input
+                          type="text"
+                          placeholder="400г, 2кг, 10кг"
+                          value={productFormState.weightOptions?.join(', ') || ''}
+                          onChange={(e) => setProductFormState({ ...productFormState, weightOptions: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+                          className="w-full bg-stone-50 border rounded-xl px-3 py-2 text-xs"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-4 pt-6">
+                        <label className="flex items-center gap-2 text-xs font-bold text-zinc-750 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={productFormState.inStock ?? true}
+                            onChange={(e) => setProductFormState({ ...productFormState, inStock: e.target.checked })}
+                            className="rounded text-emerald-750 accent-emerald-750"
+                          />
+                          <span>В наличии (есть на складе)</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-750 mb-1">Описание</label>
+                      <textarea
+                        rows={3}
+                        value={productFormState.description || ''}
+                        onChange={(e) => setProductFormState({ ...productFormState, description: e.target.value })}
+                        className="w-full bg-stone-50 border rounded-xl p-3 text-xs"
+                      ></textarea>
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={() => { setEditingProduct(null); setShowAddProductForm(false); }} className="px-4 py-2 text-xs">Отмена</button>
+                      <button type="submit" className="bg-emerald-900 text-white text-xs font-bold px-6 py-2 rounded-xl">Сохранить изменения</button>
+                    </div>
+                  </form>
+                )}
+
+                {/* Database table */}
+                <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-stone-100 border-b text-[10px] font-bold text-stone-500 uppercase">
+                      <tr>
+                        <th className="p-3">Изображение</th>
+                        <th className="p-3">Наименование</th>
+                        <th className="p-3">Бренд / Раздел</th>
+                        <th className="p-3">Цена</th>
+                        <th className="p-3">Статус</th>
+                        <th className="p-3 text-right">Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y text-zinc-700">
+                      {products.map(p => (
+                        <tr key={p.id} className="hover:bg-stone-50">
+                          <td className="p-3">
+                            <img src={p.image} alt={p.name} className="w-10 h-10 object-cover rounded border bg-stone-200" />
+                          </td>
+                          <td className="p-3 font-extrabold max-w-xs truncate">{p.name}</td>
+                          <td className="p-3">{p.brand} ({p.category})</td>
+                          <td className="p-3 font-black text-emerald-950">{p.price} ₽</td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${p.inStock ? 'bg-emerald-100 text-emerald-850' : 'bg-rose-100 text-rose-855'}`}>
+                              {p.inStock ? 'В наличии' : 'Нет'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-right">
+                            <div className="flex justify-end gap-2">
+                              <button 
+                                onClick={() => { setEditingProduct(p); setProductFormState(p); setShowAddProductForm(false); }} 
+                                className="p-1.5 text-emerald-800 hover:bg-stone-100 rounded"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => deleteProduct(p.id)} className="p-1.5 text-rose-600 hover:bg-stone-100 rounded">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* STORES CRUD TAB */}
+            {adminSubTab === 'stores' && (
+              <div className="space-y-6">
+                <div className="bg-white rounded-2xl border border-stone-200 p-5 flex justify-between items-center">
+                  <div>
+                    <h3 className="font-black text-emerald-955 text-lg">База розничных магазинов</h3>
+                    <p className="text-xs text-stone-400">Добавляйте оффлайн магазины с услугами ветеринарии и груминга.</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setEditingStore(null);
+                      setShowAddStoreForm(!showAddStoreForm);
+                      setStoreFormState({ city: 'Москва', address: '', hours: '09:00 - 22:00', phone: '+7 (495) 000-00-00', hasVetClinic: false, hasGrooming: false });
+                    }}
+                    className="bg-emerald-900 text-white text-xs font-bold px-5 py-3 rounded-xl"
+                  >
+                    Создать адрес магазина
+                  </button>
+                </div>
+
+                {(showAddStoreForm || editingStore) && (
+                  <form onSubmit={handleSaveStore} className="bg-white rounded-2xl border p-6 space-y-4 animate-slideDown">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold mb-1">Город</label>
+                        <select
+                          value={storeFormState.city}
+                          onChange={(e) => setStoreFormState({ ...storeFormState, city: e.target.value })}
+                          className="w-full bg-stone-50 border rounded-xl px-3 py-2 text-xs"
+                        >
+                          <option value="Москва">Москва</option>
+                          <option value="Санкт-Петербург">Санкт-Петербург</option>
+                          <option value="Екатеринбург">Екатеринбург</option>
+                        </select>
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-bold mb-1">Адрес *</label>
+                        <input
+                          type="text"
+                          required
+                          value={storeFormState.address || ''}
+                          onChange={(e) => setStoreFormState({ ...storeFormState, address: e.target.value })}
+                          className="w-full bg-stone-50 border rounded-xl px-3 py-2 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 justify-end">
+                      <button type="button" onClick={() => setShowAddStoreForm(false)} className="px-4 py-2 text-xs">Отмена</button>
+                      <button type="submit" className="bg-emerald-900 text-white text-xs font-bold px-5 py-2 rounded-xl">Записать адрес</button>
+                    </div>
+                  </form>
+                )}
+
+                <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-stone-100 text-stone-500 font-bold border-b">
+                        <th className="p-3 text-left">Город</th>
+                        <th className="p-3 text-left">Адрес</th>
+                        <th className="p-3 text-left">Доп. услуги</th>
+                        <th className="p-3 text-right">Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {storeLocations.map(st => (
+                        <tr key={st.id} className="border-b">
+                          <td className="p-3 font-bold">{st.city}</td>
+                          <td className="p-3">{st.address}</td>
+                          <td className="p-3">
+                            <div className="flex gap-1.5">
+                              {st.hasVetClinic && <span className="bg-teal-150 text-[9px] text-teal-800 font-bold px-2 py-0.5 rounded">Вет</span>}
+                              {st.hasGrooming && <span className="bg-emerald-150 text-[9px] text-emerald-850 font-bold px-2 py-0.5 rounded">Грум</span>}
+                            </div>
+                          </td>
+                          <td className="p-3 text-right">
+                            <button onClick={() => { setEditingStore(st); setStoreFormState(st); setShowAddStoreForm(false); }} className="text-emerald-800 p-1"><Edit3 className="w-4 h-4 inline" /></button>
+                            <button onClick={() => deleteStore(st.id)} className="text-rose-600 p-1 ml-2"><Trash2 className="w-4 h-4 inline" /></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* FAQ CRUD TAB */}
+            {adminSubTab === 'faqs' && (
+              <div className="space-y-6">
+                <div className="bg-white rounded-2xl border p-5 flex justify-between items-center">
+                  <div>
+                    <h3 className="font-black text-emerald-955 text-lg">Редактор вопросов FAQ</h3>
+                    <p className="text-xs text-stone-400">Обновляйте справочную информацию для ваших покупателей.</p>
+                  </div>
+                  <button onClick={() => setShowAddFaqForm(!showAddFaqForm)} className="bg-emerald-900 text-white text-xs font-bold px-5 py-3 rounded-xl">
+                    Добавить вопрос FAQ
+                  </button>
+                </div>
+
+                {showAddFaqForm && (
+                  <form onSubmit={handleSaveFaq} className="bg-white border-2 border-emerald-900/20 p-6 rounded-2xl space-y-4 animate-slideDown">
+                    <input
+                      type="text"
+                      required
+                      placeholder="Суть вопроса от клиента"
+                      value={faqFormState.question}
+                      onChange={(e) => setFaqFormState({ ...faqFormState, question: e.target.value })}
+                      className="w-full bg-stone-50 border p-2.5 text-xs rounded-xl"
+                    />
+                    <textarea
+                      required
+                      placeholder="Развернутый ответ..."
+                      value={faqFormState.answer}
+                      onChange={(e) => setFaqFormState({ ...faqFormState, answer: e.target.value })}
+                      className="w-full bg-stone-50 border p-2.5 text-xs rounded-xl"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={() => setShowAddFaqForm(false)} className="px-4 py-2 text-xs">Отмена</button>
+                      <button type="submit" className="bg-emerald-900 text-white text-xs font-bold px-5 py-2 rounded-xl">Сохранить</button>
+                    </div>
+                  </form>
+                )}
+
+                 <div className="space-y-3">
+                  {faqs.map((f: { question: string; answer: string }, idx: number) => (
+                    <div key={idx} className="bg-white p-4 rounded-xl border flex justify-between items-start shadow-sm">
+                      <div>
+                        <h4 className="font-bold text-sm text-emerald-955">{f.question}</h4>
+                        <p className="text-xs text-stone-500 mt-1">{f.answer}</p>
+                      </div>
+                      <button onClick={() => deleteFaq(idx)} className="text-rose-600"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* PROMOS CRUD TAB */}
+            {adminSubTab === 'promos' && (
+              <div className="space-y-6">
+                <div className="bg-white p-5 rounded-2xl border flex justify-between items-center">
+                  <div>
+                    <h3 className="font-black text-emerald-950 text-lg">База Промокодов</h3>
+                    <p className="text-xs text-stone-400">Создавайте новые скидочные купоны.</p>
+                  </div>
+                  <button onClick={() => setShowAddPromoForm(!showAddPromoForm)} className="bg-emerald-900 text-white text-xs font-bold px-5 py-3 rounded-xl">
+                    Создать промокод
+                  </button>
+                </div>
+
+                {showAddPromoForm && (
+                  <form onSubmit={handleSavePromo} className="bg-white border p-6 rounded-2xl space-y-4 max-w-md animate-slideDown">
+                    <input
+                      type="text"
+                      required
+                      placeholder="SPRING20"
+                      value={promoFormState.code}
+                      onChange={(e) => setPromoFormState({ ...promoFormState, code: e.target.value })}
+                      className="w-full bg-stone-50 border p-2 text-xs rounded-xl"
+                    />
+                    <input
+                      type="number"
+                      required
+                      placeholder="Процент скидки"
+                      value={promoFormState.discount}
+                      onChange={(e) => setPromoFormState({ ...promoFormState, discount: Number(e.target.value) })}
+                      className="w-full bg-stone-50 border p-2 text-xs rounded-xl"
+                    />
+                    <button type="submit" className="bg-emerald-900 text-white text-xs font-bold px-5 py-2 rounded-xl w-full">Записать купон</button>
+                  </form>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono">
+                  {promoCodes.map(pc => (
+                    <div key={pc.code} className="bg-white p-5 rounded-2xl border space-y-2 shadow-sm">
+                      <span className="font-black text-emerald-950">{pc.code}</span>
+                      <p className="text-xs text-stone-500">Скидка: {pc.discount}%</p>
+                      <button onClick={() => deletePromo(pc.code)} className="text-rose-600 text-xs font-bold block pt-2 border-t w-full text-left">Удалить купон</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ORDERS LOG TAB */}
+            {adminSubTab === 'orders' && (
+              <div className="space-y-6">
+                <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                  <h3 className="font-black text-emerald-955 text-lg">Входящие заказы</h3>
+                  <p className="text-xs text-stone-400">Управляйте доставкой и отслеживайте оплаты.</p>
+                </div>
+
+                <div className="space-y-4">
+                  {orders.map(ord => (
+                    <div key={ord.id} className="bg-white rounded-2xl border overflow-hidden shadow-sm">
+                      <div className="bg-stone-50 p-4 flex justify-between items-center border-b text-xs">
+                        <div>
+                          <span className="font-bold text-sm text-zinc-850">{ord.id}</span>
+                          <p className="text-[10px] text-stone-450">Дата: {ord.date}</p>
+                        </div>
+
+                        <div className="flex gap-2 items-center">
+                          <span className="text-stone-500 font-semibold">Статус заказа:</span>
+                          <select
+                            value={ord.status}
+                            onChange={(e) => handleUpdateOrderStatus(ord.id, e.target.value as any)}
+                            className="font-bold border rounded p-1 text-xs bg-white"
+                          >
+                            <option value="Новый">Новый</option>
+                            <option value="Собирается">Собирается</option>
+                            <option value="В пути">В пути</option>
+                            <option value="Доставлен">Доставлен</option>
+                            <option value="Отменен">Отменен</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="p-4 text-xs space-y-2">
+                        <p>Клиент: <strong className="text-zinc-850">{ord.customerName}</strong> ({ord.phone})</p>
+                        <p>Адрес получения: {ord.address} ({ord.city})</p>
+                        <div className="bg-stone-50 p-2.5 rounded-xl border text-[11px] space-y-1 mt-2 font-mono">
+                          {ord.items.map((item, i) => (
+                            <div key={i} className="flex justify-between">
+                              <span>{item.brand} — {item.productName} ({item.weight}) x{item.quantity}</span>
+                              <span className="font-black">{item.price * item.quantity} ₽</span>
+                            </div>
+                          ))}
+                          <div className="pt-2 border-t text-right font-black text-emerald-950 text-xs font-mono">
+                            Итоговая стоимость: {ord.totalAmount} ₽
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      ) : (
+        // CLIENT APP
+        <>
+          {/* HERO SECTION */}
+          {activeTab === 'shop' && !showFavoritesOnly && activeCategory === 'all' && activeType === 'all' && !searchQuery && (
+            <div className="bg-gradient-to-br from-emerald-900 via-emerald-850 to-emerald-950 text-white overflow-hidden relative">
+              <div className="max-w-7xl mx-auto px-4 py-12 md:py-20 flex flex-col md:flex-row items-center justify-between gap-12 relative z-10">
+                
+                <div className="flex-1 space-y-6 text-center md:text-left transform -translate-y-2 md:-translate-y-4">
+                  <span className="bg-emerald-800/60 border border-emerald-700 px-4 py-2 rounded-2xl text-xs font-bold text-amber-300 uppercase tracking-wider inline-block">
+                    🐾 Лапки & Хвостики — Premium Зоомаркет
+                  </span>
+                  <h1 className="text-4xl sm:text-5xl md:text-6xl font-black leading-none">
+                    Всё для здоровья <br />
+                    <span className="text-amber-400 font-black">ваших хвостиков</span>
+                  </h1>
+                  <p className="text-emerald-150 text-xs sm:text-sm max-w-xl leading-relaxed">
+                    Гипоаллергенные холистик-корма, уникальные развивающие игрушки, мягкие лежаки и ветаптека от лучших мировых брендов с доставкой до дверей.
+                  </p>
+                  <div className="flex gap-4 justify-center md:justify-start pt-2">
+                    <button onClick={() => setActiveCategory('cats')} className="bg-amber-400 hover:bg-amber-500 text-emerald-950 font-black px-6 py-3.5 rounded-xl text-xs uppercase tracking-wider shadow-lg shadow-amber-400/10">Каталог для кошек</button>
+                    <button onClick={() => setActiveCategory('dogs')} className="bg-emerald-800/50 border border-emerald-700 text-white font-bold px-6 py-3.5 rounded-xl text-xs">Каталог для собак</button>
+                  </div>
+                </div>
+
+                <div className="flex-1 flex justify-center relative">
+                  <div className="w-72 h-72 rounded-full border-8 border-emerald-800 overflow-hidden bg-emerald-800 shadow-2xl relative">
+                    <img src="https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&q=80&w=600" alt="Happy pets" className="w-full h-full object-cover scale-110" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MAIN COMPONENT */}
+          <main className="flex-1 max-w-7xl mx-auto px-4 py-8 w-full">
+            
+            {/* CHECKOUT SCREEN PANEL */}
+            {checkoutOpen && (
+              <div className="bg-emerald-950/10 border-t border-b border-stone-200 py-10 mb-6 animate-fadeIn">
+                <div className="max-w-3xl mx-auto px-4">
+                  <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 p-6 sm:p-8 space-y-6">
+                    <div className="flex justify-between items-center border-b pb-3">
+                      <h2 className="font-black text-xl text-emerald-955">Оформление покупки</h2>
+                      <button onClick={() => setCheckoutOpen(false)} className="text-stone-400 hover:text-stone-600"><X className="w-5 h-5" /></button>
+                    </div>
+
+                    {orderSuccess ? (
+                      <div className="text-center py-6 space-y-4">
+                        <div className="w-16 h-16 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto">
+                          <Check className="w-8 h-8 stroke-[3]" />
+                        </div>
+                        <h3 className="text-xl font-black text-emerald-955">Заказ успешно оформлен!</h3>
+                        <p className="text-xs text-stone-500">
+                          Вам присвоен номер заказа: <strong className="text-emerald-900 select-all font-bold">{orderNumber}</strong>. Все детали сохранены в базе.
+                        </p>
+                        <div className="flex gap-2 justify-center pt-2">
+                          <button onClick={() => { setCheckoutOpen(false); setOrderSuccess(false); }} className="bg-emerald-900 text-white text-xs font-bold px-6 py-2.5 rounded-xl shadow">
+                            Вернуться к покупкам
+                          </button>
+                          <button onClick={() => { setCheckoutOpen(false); setOrderSuccess(false); setShowAdminMode(true); setAdminSubTab('orders'); }} className="bg-stone-100 hover:bg-stone-200 text-zinc-700 text-xs font-bold px-6 py-2.5 rounded-xl border">
+                            Посмотреть в Админке
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <form onSubmit={handlePlaceOrder} className="space-y-4 text-xs text-stone-750">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-bold text-zinc-700 mb-1">Имя и Фамилия *</label>
+                            <input type="text" required placeholder="Иван" value={checkoutForm.name} onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })} className="w-full bg-stone-50 border border-stone-350 rounded-xl p-2.5" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-zinc-700 mb-1">Мобильный телефон *</label>
+                            <input type="tel" required placeholder="+7" value={checkoutForm.phone} onChange={(e) => setCheckoutForm({ ...checkoutForm, phone: e.target.value })} className="w-full bg-stone-50 border border-stone-350 rounded-xl p-2.5" />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-xs font-bold text-zinc-700 mb-1">Город</label>
+                            <select value={checkoutForm.city} onChange={(e) => setCheckoutForm({ ...checkoutForm, city: e.target.value })} className="w-full bg-stone-50 border p-2 rounded-xl font-bold">
+                              <option value="Москва">Москва</option>
+                              <option value="Санкт-Петербург">Санкт-Петербург</option>
+                              <option value="Екатеринбург">Екатеринбург</option>
+                            </select>
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="block text-xs font-bold text-zinc-700 mb-1">Адрес доставки *</label>
+                            <input type="text" required={checkoutForm.deliveryType === 'delivery'} placeholder="Улица, дом, квартира" value={checkoutForm.address} onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })} className="w-full bg-stone-50 border border-stone-350 rounded-xl p-2.5" />
+                          </div>
+                        </div>
+
+                        <div className="flex justify-between items-center pt-4 border-t">
+                          <div>
+                            <p className="text-xs text-stone-450 font-bold">К оплате с учетом скидок:</p>
+                            <p className="text-2xl font-black text-emerald-950">{cartTotal} ₽</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => setCheckoutOpen(false)} className="px-4 py-2 text-xs font-bold">Назад</button>
+                            <button type="submit" className="bg-emerald-900 text-white font-black px-8 py-3.5 rounded-xl text-xs uppercase tracking-wider">
+                              Подтвердить покупку
+                            </button>
+                          </div>
+                        </div>
+                      </form>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Shop Tab View */}
+            {activeTab === 'shop' && (
+              <div className="space-y-8">
+                
+                {/* Pet tailored recommendation header */}
+                {petProfiles.length > 0 && (
+                  <div className={`bg-gradient-to-r from-emerald-950 to-stone-900 text-white rounded-3xl p-5 flex flex-col md:flex-row justify-between items-center gap-6 border border-emerald-850 shadow-lg transition-all duration-300 ${checkoutOpen ? 'mt-6' : ''}`}>
+                    <div>
+                      <h3 className="text-lg font-black">Персональный Умный Фильтр</h3>
+                      <p className="text-xs text-emerald-250 mt-1">Система отсортирует лучшие корма и товары специально под потребности ваших питомцев.</p>
+                      
+                      <div className="flex gap-2 flex-wrap mt-3">
+                        {petProfiles.map(p => (
+                          <button
+                            key={p.id}
+                            onClick={() => { setActivePetProfileId(p.id); setTailoredFilter(true); triggerNotification(`🎯 Персональные рекомендации для ${p.name}`); }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${activePetProfileId === p.id && tailoredFilter ? 'bg-amber-400 text-emerald-950' : 'bg-emerald-800/60 text-emerald-200'}`}
+                          >
+                            {p.name} ({p.breed || 'метис'})
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button onClick={() => setTailoredFilter(!tailoredFilter)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-5 py-2.5 rounded-xl whitespace-nowrap">
+                      {tailoredFilter ? 'Сбросить умный фильтр' : 'Активировать Умный фильтр'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Category buttons row */}
+                <div className="bg-white rounded-3xl border border-stone-200 p-5 shadow-sm">
+                  <h2 className="text-xs text-stone-400 font-bold uppercase tracking-wider mb-3">Выбор категории</h2>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                    {CATEGORIES.map(cat => (
+                      <button
+                        key={cat.id}
+                        onClick={() => { setActiveCategory(cat.id); if (cat.id !== 'all') setTailoredFilter(false); }}
+                        className={`flex flex-col items-center py-3.5 px-1 rounded-xl border transition-all ${activeCategory === cat.id ? 'bg-emerald-900 text-white font-bold border-emerald-900 shadow-lg shadow-emerald-950/20' : 'bg-stone-50 hover:bg-stone-100 text-zinc-750'}`}
+                      >
+                        <span className="text-lg mb-1">
+                          {cat.id === 'all' && '✨'}
+                          {cat.id === 'dogs' && '🐶'}
+                          {cat.id === 'cats' && '🐱'}
+                          {cat.id === 'rodents' && '🐹'}
+                          {cat.id === 'fish' && '🐠'}
+                          {cat.id === 'birds' && '🦜'}
+                        </span>
+                        <span className="text-xs truncate">{cat.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Grid Layout: Filters sidebar & products table */}
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                  
+                  {/* Filters sidebar column */}
+                  <div className="space-y-6">
+                    <div className="bg-white p-5 rounded-2xl border shadow-sm space-y-4">
+                      <h3 className="font-bold text-xs text-stone-500 uppercase pb-2 border-b">Тип товара</h3>
+                      <div className="space-y-1">
+                        {PRODUCT_TYPES.map(t => (
+                          <button
+                            key={t.id}
+                            onClick={() => setActiveType(t.id)}
+                            className={`w-full text-left px-3 py-1.5 rounded-lg text-xs ${activeType === t.id ? 'bg-emerald-50 text-emerald-950 font-bold border-l-4 border-emerald-700' : 'text-stone-600 hover:bg-stone-50'}`}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Price filter */}
+                    <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                      <h3 className="font-bold text-xs text-stone-500 uppercase mb-2">Максимальная цена</h3>
+                      <input
+                        type="range" min="100" max="12000" step="100" value={maxPrice}
+                        onChange={(e) => setMaxPrice(Number(e.target.value))}
+                        className="w-full accent-emerald-750"
+                      />
+                      <p className="text-xs text-emerald-900 font-black mt-2">{maxPrice} ₽</p>
+                    </div>
+
+                    <div className="bg-white p-5 rounded-2xl border shadow-sm space-y-3">
+                      <label className="flex items-center gap-2.5 text-xs font-bold cursor-pointer">
+                        <input type="checkbox" checked={onlyInStock} onChange={(e) => setOnlyInStock(e.target.checked)} className="rounded text-emerald-700 focus:ring-emerald-650" />
+                        <span>Только в наличии</span>
+                      </label>
+
+                      <label className="flex items-center gap-2.5 text-xs font-bold cursor-pointer text-rose-700">
+                        <input type="checkbox" checked={showFavoritesOnly} onChange={(e) => setShowFavoritesOnly(e.target.checked)} className="rounded text-emerald-700 focus:ring-emerald-650" />
+                        <span>Только избранное ({favorites.length})</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Products catalog grid */}
+                  <div className="lg:col-span-3 space-y-6">
+                    
+                    <div className="bg-white p-4 rounded-2xl border flex justify-between items-center shadow-sm">
+                      <h3 className="font-black text-base text-emerald-955">Каталог продукции ({filteredProducts.length})</h3>
+                      <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-stone-100 rounded p-1.5 text-xs border-none outline-none cursor-pointer font-bold">
+                        <option value="popular">По популярности</option>
+                        <option value="price-asc">Цена: по возрастанию</option>
+                        <option value="price-desc">Price: по убыванию</option>
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+                      {filteredProducts.map(product => {
+                        const isFav = favorites.includes(product.id);
+                        const selectedWeight = selectedWeights[product.id] || (product.weightOptions ? product.weightOptions[0] : undefined);
+                        const priceInfo = getPriceForWeight(product.price, selectedWeight);
+
+                        return (
+                          <div 
+                            key={product.id}
+                            onClick={() => setSelectedProduct(product)}
+                            className="bg-white rounded-2xl border shadow-sm hover:shadow-md transition-all flex flex-col overflow-hidden cursor-pointer"
+                          >
+                            <div className="h-48 overflow-hidden relative bg-stone-50">
+                              <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+                              <button 
+                                onClick={(e) => toggleFavorite(product.id, e)}
+                                className="absolute top-2.5 right-2.5 p-1.5 bg-white/95 rounded-lg border text-stone-400 hover:text-rose-600"
+                              >
+                                <Heart className={`w-4 h-4 ${isFav ? 'fill-rose-600 text-rose-650' : ''}`} />
+                              </button>
+                            </div>
+
+                            <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
+                              <div>
+                                <span className="bg-emerald-50 text-emerald-850 text-[9px] font-black uppercase px-1.5 py-0.5 rounded">{product.brand}</span>
+                                <h4 className="font-black text-xs text-zinc-800 line-clamp-2 mt-1">{product.name}</h4>
+                              </div>
+
+                              <div className="flex justify-between items-center pt-2 border-t text-xs">
+                                <div>
+                                  <p className="font-black text-emerald-955 text-sm">{priceInfo.price} ₽</p>
+                                  <span className="text-[9px] text-stone-400 font-bold">{selectedWeight || '1 шт.'}</span>
+                                </div>
+
+                                {product.inStock ? (
+                                  <button
+                                    onClick={(e) => addToCart(product, selectedWeight, e)}
+                                    className="bg-emerald-900 hover:bg-emerald-850 text-white p-2 rounded-xl text-[11px] font-bold"
+                                  >
+                                    Купить
+                                  </button>
+                                ) : (
+                                  <span className="text-stone-400 text-[10px]">Под заказ</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+            {/* STORES VIEW */}
+            {activeTab === 'stores' && (
+              <div className="space-y-8">
+                <div className="bg-gradient-to-r from-emerald-900 to-emerald-950 text-white p-8 rounded-3xl shadow-lg">
+                  <h2 className="text-3xl font-black">Наши розничные магазины</h2>
+                  <p className="text-xs text-emerald-150 mt-2">Забирайте ваши заказы бесплатно за 15 минут в любой точке самовывоза.</p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                  <div className="lg:col-span-2 space-y-4 max-h-[400px] overflow-y-auto pr-2">
+                    {filteredStores.map(store => (
+                      <div key={store.id} onClick={() => setSelectedStore(store)} className="p-4 rounded-xl border bg-white cursor-pointer shadow-sm hover:shadow transition-all">
+                        <span className="bg-emerald-900 text-white text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-wider">{store.city}</span>
+                        <h3 className="font-bold text-sm mt-2">{store.address}</h3>
+                        <p className="text-[10px] text-stone-500 mt-1">{store.phone} | {store.hours}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="lg:col-span-3 bg-emerald-950/10 rounded-3xl border p-6 flex flex-col justify-between min-h-[350px] relative">
+                    <div className="bg-white/90 p-4 rounded-xl border text-xs mt-auto max-w-md z-10 shadow-2xl">
+                      <h4 className="font-black text-sm mb-1">{selectedStore?.address}</h4>
+                      <p className="text-stone-500 mb-3">Часы работы: {selectedStore?.hours}</p>
+                      <button 
+                        onClick={() => {
+                          setCheckoutForm(prev => ({ ...prev, deliveryType: 'pickup', pickupStoreId: selectedStore?.id || 's1' }));
+                          triggerNotification('📍 Магазин выбран для выдачи заказа');
+                          setCartOpen(true);
+                        }}
+                        className="bg-emerald-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl w-full"
+                      >
+                        Выбрать для самовывоза
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* FAQ VIEW */}
+            {activeTab === 'faq' && (
+              <div className="space-y-8 max-w-3xl mx-auto">
+                <div className="text-center space-y-4">
+                  <HelpCircle className="w-12 h-12 text-amber-400 mx-auto animate-pulse" />
+                  <h2 className="text-2xl font-black text-emerald-955">База полезных знаний FAQ</h2>
+                  
+                  <div className="relative max-w-md mx-auto">
+                    <input
+                      type="text"
+                      placeholder="Поиск по вопросам..."
+                      value={faqSearch}
+                      onChange={(e) => setFaqSearch(e.target.value)}
+                      className="w-full bg-white border border-stone-200 focus:ring-2 focus:ring-emerald-600 outline-none rounded-xl py-2 pl-9 pr-3 text-xs"
+                    />
+                    <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  </div>
+                </div>
+
+                 <div className="space-y-3">
+                  {faqs.filter((f: { question: string; answer: string }) => {
+                    if (!faqSearch.trim()) return true;
+                    const q = faqSearch.toLowerCase();
+                    return f.question.toLowerCase().includes(q) || f.answer.toLowerCase().includes(q);
+                  }).map((f: { question: string; answer: string }, idx: number) => {
+                    const isOpen = openFaqIndex === idx;
+                    return (
+                      <div key={idx} className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                        <button
+                          onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
+                          className="w-full text-left p-5 font-extrabold text-zinc-800 hover:bg-stone-50 text-xs sm:text-sm flex justify-between items-center"
+                        >
+                          <span>{f.question}</span>
+                          <ChevronDown className={`w-4 h-4 text-stone-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        {isOpen && (
+                          <div className="p-5 bg-stone-50 border-t text-xs text-stone-600 leading-relaxed">
+                            {f.answer}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* LOYALTY VIEW */}
+            {activeTab === 'loyalty' && (
+              <div className="space-y-8">
+                <div className="bg-gradient-to-r from-emerald-900 to-stone-900 text-white p-8 rounded-3xl flex flex-col sm:flex-row justify-between items-center gap-6 shadow-lg">
+                  <div>
+                    <h2 className="text-3xl font-black">Бонусный «Клуб Хвостиков»</h2>
+                    <p className="text-xs text-emerald-200 mt-1">Копите золотые бонусы за покупки премиальных товаров.</p>
+                  </div>
+                  <div className="bg-amber-400 text-emerald-955 p-6 rounded-2xl font-black text-sm shadow-inner">
+                    <p className="text-[10px] opacity-80">Бонусный баланс</p>
+                    <p className="text-2xl">1 450 баллов</p>
+                  </div>
+                </div>
+
+                {/* Pets Profiles */}
+                <div className="bg-white rounded-3xl border p-6 space-y-6 shadow-sm">
+                  <div className="flex justify-between items-center border-b pb-3">
+                    <h3 className="font-black text-lg text-emerald-955">Мои любимые питомцы ({petProfiles.length})</h3>
+                    <button onClick={() => setShowPetWizard(!showPetWizard)} className="bg-emerald-900 text-white text-xs font-bold px-4 py-2 rounded-xl shadow">
+                      Добавить любимца
+                    </button>
+                  </div>
+
+                  {showPetWizard && (
+                    <form onSubmit={handleAddPet} className="bg-stone-50 border rounded-2xl p-5 space-y-4 max-w-md animate-slideDown">
+                      <div>
+                        <label className="block text-xs font-bold mb-1">Имя любимца *</label>
+                        <input type="text" required value={newPet.name} onChange={(e) => setNewPet({ ...newPet, name: e.target.value })} className="w-full border p-2.5 text-xs rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold mb-1">Тип любимца *</label>
+                        <select value={newPet.type} onChange={(e) => setNewPet({ ...newPet, type: e.target.value as any })} className="w-full border p-2.5 text-xs rounded-lg bg-white">
+                          <option value="dogs">Собака</option>
+                          <option value="cats">Кошка</option>
+                          <option value="rodents">Грызун</option>
+                          <option value="fish">Рыбки</option>
+                        </select>
+                      </div>
+                      <button type="submit" className="bg-emerald-900 text-white text-xs font-bold px-4 py-2 rounded-lg">Сохранить любимца</button>
+                    </form>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {petProfiles.map(p => (
+                      <div key={p.id} className="bg-stone-50 border p-4 rounded-xl flex justify-between items-center shadow-sm">
+                        <div>
+                          <p className="font-bold text-sm text-zinc-800">{p.name}</p>
+                          <span className="text-[10px] text-emerald-850 font-semibold capitalize">{p.type}</span>
+                        </div>
+                        <button onClick={() => setPetProfiles(prev => prev.filter(x => x.id !== p.id))} className="text-rose-650 text-xs font-bold hover:underline">Удалить</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </main>
+        </>
+      )}
+
+      {/* CLIENT VIEW CART DRAWER */}
+      {cartOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-emerald-950/40 backdrop-blur-sm" onClick={() => setCartOpen(false)}></div>
+          
+          <div className="relative w-full max-w-md bg-white h-full flex flex-col shadow-2xl z-10 animate-slideLeft">
+            <div className="bg-emerald-900 text-white p-5 flex justify-between items-center">
+              <h3 className="font-black text-lg">Ваша корзина ({cart.reduce((sum, i) => sum + i.quantity, 0)})</h3>
+              <button onClick={() => setCartOpen(false)} className="text-emerald-200 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {cart.length > 0 && (
+                <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-xs space-y-1.5">
+                  <p className="font-bold text-emerald-900">
+                    {cartSubtotal >= 2000 ? '🎉 Бесплатная доставка!' : `Осталось ${2000 - cartSubtotal} ₽ до бесплатной доставки`}
+                  </p>
+                  <div className="w-full bg-stone-200 h-1.5 rounded-full overflow-hidden">
+                    <div className="bg-amber-400 h-full" style={{ width: `${progressToFreeDelivery}%` }}></div>
+                  </div>
+                </div>
+              )}
+
+              {cart.map(item => (
+                <div key={`${item.product.id}-${item.selectedWeight}`} className="bg-stone-50 border rounded-xl p-3 flex gap-3">
+                  <img src={item.product.image} alt={item.product.name} className="w-14 h-14 object-cover rounded bg-stone-150" />
+                  <div className="flex-1 min-w-0">
+                    <h5 className="font-bold text-xs truncate">{item.product.name}</h5>
+                    <p className="text-[10px] text-stone-500">{item.selectedWeight}</p>
+                    <div className="flex justify-between items-center mt-2">
+                      <div className="flex items-center gap-1.5 bg-white border rounded p-0.5">
+                        <button onClick={() => updateCartQty(item.product.id, item.selectedWeight, -1)}><Minus className="w-3 h-3" /></button>
+                        <span className="text-xs font-black px-1.5">{item.quantity}</span>
+                        <button onClick={() => updateCartQty(item.product.id, item.selectedWeight, 1)}><Plus className="w-3 h-3" /></button>
+                      </div>
+                      <span className="text-xs font-black text-emerald-950">{item.price * item.quantity} ₽</span>
+                    </div>
+                  </div>
+                  <button onClick={() => removeFromCart(item.product.id, item.selectedWeight)} className="text-stone-400 hover:text-rose-600 self-start"><X className="w-4 h-4" /></button>
+                </div>
+              ))}
+
+              {cart.length === 0 && (
+                <div className="text-center py-12 text-stone-450 font-bold">В вашей корзине пока пусто.</div>
+              )}
+            </div>
+
+            {cart.length > 0 && (
+              <div className="bg-stone-50 border-t p-5 space-y-4">
+                <form onSubmit={handleApplyPromo} className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Введите промокод"
+                    value={promoInput}
+                    onChange={(e) => setPromoInput(e.target.value)}
+                    className="flex-1 bg-white border text-xs p-2.5 rounded-xl focus:outline-none"
+                  />
+                  <button type="submit" className="bg-emerald-900 text-white text-xs font-bold px-4 rounded-xl">Применить</button>
+                </form>
+                
+                {promoFeedback && (
+                  <p className={`text-[10px] font-bold ${promoFeedback.isError ? 'text-rose-600' : 'text-emerald-900'}`}>{promoFeedback.text}</p>
+                )}
+
+                <div className="text-xs space-y-2 pt-2 border-t">
+                  <div className="flex justify-between"><span>Сумма заказа:</span><span>{cartSubtotal} ₽</span></div>
+                  {promoDiscountPercent > 0 && <div className="flex justify-between text-rose-650 font-bold"><span>Скидка промокода:</span><span>-{cartDiscount} ₽</span></div>}
+                  <div className="flex justify-between"><span>Доставка:</span><span>{deliveryCost === 0 ? 'Бесплатно' : `${deliveryCost} ₽`}</span></div>
+                  <div className="flex justify-between text-base font-black text-emerald-950 pt-2 border-t"><span>Итого:</span><span>{cartTotal} ₽</span></div>
+                </div>
+
+                <button onClick={() => { setCartOpen(false); setCheckoutOpen(true); setOrderSuccess(false); }} className="bg-amber-400 hover:bg-amber-500 text-emerald-950 font-black py-3 rounded-xl uppercase text-xs tracking-wider w-full text-center shadow">
+                  Оформить заказ
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* CLIENT VIEW PRODUCT DETAIL POPUP */}
+      {selectedProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-emerald-950/50 backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedProduct(null)}></div>
+          
+          <div className="relative bg-white rounded-3xl shadow-2xl z-10 max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 sm:p-8 space-y-6 animate-zoomIn">
+            <button onClick={() => setSelectedProduct(null)} className="absolute right-4 top-4 text-stone-500"><X className="w-5 h-5" /></button>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="h-60 bg-stone-50 rounded-2xl overflow-hidden border">
+                <img src={selectedProduct.image} alt={selectedProduct.name} className="w-full h-full object-cover" />
+              </div>
+
+              <div className="space-y-3">
+                <span className="bg-emerald-100 text-emerald-900 text-[10px] font-black uppercase px-2 py-0.5 rounded-md">{selectedProduct.brand}</span>
+                <h3 className="font-black text-zinc-850 text-base leading-tight">{selectedProduct.name}</h3>
+                
+                <div className="flex items-center gap-1 text-amber-500 font-bold text-xs">
+                  <Star className="w-3.5 h-3.5 fill-current" />
+                  <span>{selectedProduct.rating} / 5.0 ({selectedProduct.reviewsCount} отзывов)</span>
+                </div>
+
+                <div className="text-2xl font-black text-emerald-950 pt-2">
+                  {getPriceForWeight(selectedProduct.price, selectedWeights[selectedProduct.id] || (selectedProduct.weightOptions ? selectedProduct.weightOptions[0] : undefined)).price} ₽
+                </div>
+
+                {selectedProduct.weightOptions && selectedProduct.weightOptions.length > 0 && (
+                  <div className="space-y-2 pt-2">
+                    <p className="text-[10px] font-bold text-stone-500 uppercase">Выберите вес/фасовку:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedProduct.weightOptions.map(wt => {
+                        const activeW = selectedWeights[selectedProduct.id] || selectedProduct.weightOptions![0];
+                        const isSelected = activeW === wt;
+                        return (
+                          <button
+                            key={wt}
+                            onClick={() => setSelectedWeights(prev => ({ ...prev, [selectedProduct.id]: wt }))}
+                            className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${isSelected ? 'bg-emerald-900 text-white' : 'bg-stone-50 text-stone-650'}`}
+                          >
+                            {wt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-4">
+                  {selectedProduct.inStock ? (
+                    <button
+                      onClick={() => {
+                        addToCart(selectedProduct, selectedWeights[selectedProduct.id]);
+                        setSelectedProduct(null);
+                        setCartOpen(true);
+                      }}
+                      className="w-full bg-emerald-900 text-white font-bold py-3.5 rounded-xl uppercase text-xs shadow"
+                    >
+                      Добавить в корзину
+                    </button>
+                  ) : (
+                    <span className="text-rose-650 text-xs font-bold">Временно нет на складе</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4 space-y-3">
+              <h4 className="font-black text-sm text-zinc-800 uppercase">Описание</h4>
+              <p className="text-xs text-stone-600 leading-relaxed">{selectedProduct.description}</p>
+              
+              <div className="border rounded-xl overflow-hidden text-xs mt-3 font-mono">
+                {Object.entries(selectedProduct.specifications || {}).map(([k, v], i) => (
+                  <div key={i} className={`grid grid-cols-2 p-2.5 ${i % 2 === 0 ? 'bg-stone-50' : 'bg-white'}`}>
+                    <span className="font-bold text-stone-500">{k}</span>
+                    <span className="text-zinc-800">{v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Reviews section */}
+            <div className="border-t pt-4 space-y-4">
+              <h4 className="font-black text-sm text-zinc-800 uppercase">Отзывы клиентов ({reviewsList.filter(r => r.productId === selectedProduct.id).length})</h4>
+              
+              <div className="space-y-3">
+                {reviewsList.filter(r => r.productId === selectedProduct.id).map(rev => (
+                  <div key={rev.id} className="bg-stone-50 p-3.5 rounded-xl border space-y-1.5 text-xs">
+                    <div className="flex justify-between font-bold">
+                      <span>{rev.author} {rev.petName ? `(Хозяин ${rev.petName})` : ''}</span>
+                      <span className="text-amber-400">{"★".repeat(rev.rating)}</span>
+                    </div>
+                    <p className="text-stone-600 leading-relaxed">{rev.text}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Add Review */}
+              <form onSubmit={handleAddReview} className="bg-stone-100 p-4 rounded-xl border space-y-3 text-xs">
+                <h5 className="font-bold text-zinc-850">Оставить честный отзыв</h5>
+                {reviewFeedback && <p className="text-[11px] font-bold text-emerald-800 bg-emerald-50 p-2 rounded">{reviewFeedback}</p>}
+                <div className="grid grid-cols-2 gap-3">
+                  <input type="text" required placeholder="Имя" value={newReview.author} onChange={(e) => setNewReview({ ...newReview, author: e.target.value })} className="border p-2 rounded-lg bg-white" />
+                  <input type="text" placeholder="Питомец (напр.: Мурка)" value={newReview.petName} onChange={(e) => setNewReview({ ...newReview, petName: e.target.value })} className="border p-2 rounded-lg bg-white" />
+                </div>
+                <textarea required rows={2} placeholder="Текст..." value={newReview.text} onChange={(e) => setNewReview({ ...newReview, text: e.target.value })} className="w-full border p-2 rounded-lg bg-white resize-none" />
+                <button type="submit" className="bg-emerald-900 text-white px-5 py-2 rounded-lg text-xs font-bold">Опубликовать</button>
+              </form>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+
+
+      {/* FOOTER */}
+      <footer className="bg-emerald-950 text-emerald-100/90 text-xs mt-auto border-t border-emerald-900">
+        
+        <div className="border-b border-emerald-900/70 py-8 px-4">
+          <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-6">
+            <div>
+              <h4 className="font-black text-white text-base">
+                Подпишитесь на рассылку «Лапки&Хвостики»
+              </h4>
+              <p className="text-emerald-200/80">
+                Раз в неделю присылаем полезные гайды от ветеринаров и закрытые промокоды на скидки.
+              </p>
+            </div>
+
+            <div className="w-full max-w-md">
+              {newsSubscribed ? (
+                <div className="bg-emerald-900/80 text-amber-300 p-3 rounded-xl text-center font-bold">
+                  🎉 Спасибо за подписку! Мы выслали приветственный промокод на вашу почту.
+                </div>
+              ) : (
+                <form 
+                  onSubmit={(e) => { e.preventDefault(); if (newsEmail.trim()) setNewsSubscribed(true); }}
+                  className="flex gap-2"
+                >
+                  <input
+                    type="email" required placeholder="Ваш e-mail" value={newsEmail}
+                    onChange={(e) => setNewsEmail(e.target.value)}
+                    className="flex-1 bg-emerald-900/40 border border-emerald-800 text-white placeholder-emerald-350 rounded-xl px-3.5 py-2 focus:outline-none"
+                  />
+                  <button type="submit" className="bg-amber-400 hover:bg-amber-500 text-emerald-950 font-extrabold px-6 rounded-xl text-xs uppercase">Подписаться</button>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-4 py-12 grid grid-cols-1 sm:grid-cols-3 gap-8 text-center sm:text-left">
+          <div className="space-y-3">
+            <div className="flex items-center justify-center sm:justify-start gap-2">
+              <Dog className="w-5 h-5 text-amber-400 animate-pulse" />
+              <span className="text-base font-extrabold text-white">Лапки&Хвостики</span>
+            </div>
+            <p className="text-emerald-200/70 leading-relaxed">
+              Премиальный интернет-магазин и сеть розничных зоомаркетов с ветеринарными кабинетами и груминг-салонами. Заботимся о ваших питомцах с 2015 года.
+            </p>
+          </div>
+
+          <div className="space-y-2.5 col-span-2">
+            <h4 className="font-bold text-white uppercase text-[10px] tracking-wider">Покупателям</h4>
+            <ul className="space-y-1.5 text-emerald-200/85">
+              <li><button onClick={() => { setActiveTab('shop'); setShowAdminMode(false); }} className="hover:text-white">Каталог товаров</button></li>
+              <li><button onClick={() => { setActiveTab('stores'); setShowAdminMode(false); }} className="hover:text-white">Адреса розничных точек</button></li>
+              <li><button onClick={() => { setActiveTab('loyalty'); setShowAdminMode(false); }} className="hover:text-white">Бонусная программа</button></li>
+              <li><button onClick={() => { setActiveTab('faq'); setShowAdminMode(false); }} className="hover:text-white">База знаний FAQ</button></li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="border-t border-emerald-900 py-6 px-4 text-center text-emerald-350/50">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-2">
+            <p>© 2026 «Лапки&Хвостики» — Сеть премиум зоомаркетов. Все права защищены.</p>
+            <div className="flex gap-3">
+              <span className="hover:underline cursor-pointer">Конфиденциальность</span>
+              <span>•</span>
+              <span className="hover:underline cursor-pointer">Публичная оферта</span>
+            </div>
+          </div>
+        </div>
+      </footer>
+
+      {/* SECURE ADMIN LOGIN MODAL DIALOG */}
+      {showLoginModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-emerald-950/60 backdrop-blur-sm animate-fadeIn"
+            onClick={() => { setShowLoginModal(false); setLoginError(false); }}
+          ></div>
+
+          {/* Modal panel */}
+          <div className="relative bg-white rounded-3xl shadow-2xl z-10 max-w-md w-full p-6 sm:p-8 space-y-5 border border-stone-200 animate-zoomIn text-center">
+            
+            {/* Close button */}
+            <button
+              onClick={() => { setShowLoginModal(false); setLoginError(false); }}
+              className="absolute right-4 top-4 text-stone-400 hover:text-stone-600 p-1.5 rounded-full"
+              aria-label="Закрыть вход"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="bg-emerald-100 text-emerald-900 p-3.5 rounded-2xl inline-block mx-auto">
+              <Settings className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-xl font-black text-emerald-955">Вход в Панель Управления</h3>
+              <p className="text-xs text-stone-500">
+                Требуется авторизация суперадминистратора сети «Лапки&Хвостики»
+              </p>
+            </div>
+
+            <form onSubmit={handleAdminSubmit} className="space-y-4 text-left text-xs">
+              <div>
+                <label className="block font-bold text-zinc-700 mb-1">Логин *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Например: admin"
+                  value={loginInput}
+                  onChange={(e) => setLoginInput(e.target.value)}
+                  className="w-full bg-stone-50 border border-stone-300 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-emerald-500 outline-none font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-zinc-700 mb-1">Пароль *</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  className="w-full bg-stone-50 border border-stone-300 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+
+              {loginError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 p-2.5 rounded-xl font-bold text-center">
+                  ❌ Неверный логин или пароль! Пожалуйста, перепроверьте данные.
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="w-full bg-emerald-900 hover:bg-emerald-850 text-white font-black py-3.5 rounded-xl uppercase tracking-wider transition-all shadow-md"
+              >
+                Авторизоваться в системе
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
